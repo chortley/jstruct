@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
-
 )
 
 func GenerateStruct(jsonData, structName string) (string, error) {
@@ -15,10 +14,21 @@ func GenerateStruct(jsonData, structName string) (string, error) {
 
 	var builder strings.Builder
 	builder.WriteString(fmt.Sprintf("type %s struct {\n", structName))
+
 	for key, value := range data {
 		fieldName := toCamelCase(key)
-		fieldType := inferGoType(value)
-		builder.WriteString(fmt.Sprintf("    %s %s `json:\"%s\"`\n", fieldName, fieldType, key))
+		fieldType, nestedStruct := inferGoType(value, key)
+
+		if nestedStruct != "" {
+			nestedStructDefinition, err := GenerateStruct(toJSON(value), nestedStruct)
+			if err != nil {
+				return "", err
+			}
+			builder.WriteString(fmt.Sprintf("    %s %s `json:\"%s\"`\n", fieldName, nestedStruct, key))
+			builder.WriteString(nestedStructDefinition) // Include the nested struct definition here
+		} else {
+			builder.WriteString(fmt.Sprintf("    %s %s `json:\"%s\"`\n", fieldName, fieldType, key))
+		}
 	}
 	builder.WriteString("}")
 	return builder.String(), nil
@@ -32,24 +42,29 @@ func toCamelCase(input string) string {
 	return strings.Join(parts, "")
 }
 
-func inferGoType(value interface{}) string {
-	switch v := value.(type) {
+func inferGoType(value interface{}, key string) (string, string) {
+	switch value.(type) {
 	case string:
-		return "string"
+		return "string", ""
 	case float64:
-		if v == float64(int(v)) {
-			return "int"
-		}
-		return "float64"
+		return "float64", ""
 	case bool:
-		return "bool"
-	case []interface{}:
-		return "[]interface{}"
+		return "bool", ""
+	case nil:
+		return "interface{}", ""
 	case map[string]interface{}:
-		return "map[string]interface{}"
+		structName := fmt.Sprintf("%sStruct", toCamelCase(key)) 
+		return "interface{}", structName 
 	default:
-		return "interface{}"
+		return "interface{}", ""
 	}
 }
 
+func toJSON(v interface{}) string {
+	data, err := json.Marshal(v)
+	if err != nil {
+		return ""
+	}
+	return string(data)
+}
 
